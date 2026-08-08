@@ -1,0 +1,561 @@
+package br.com.restaurante.controller;
+
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.sql.Connection;
+import java.util.List;
+
+import br.com.restaurante.dao.CategoriaItemDAO;
+import br.com.restaurante.dao.CardapioDAO;
+import br.com.restaurante.model.CategoriaItem;
+import br.com.restaurante.model.Cardapio;
+import br.com.restaurante.model.Usuario;
+import br.com.restaurante.utils.Conexao;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+/**
+ * ================================================================
+ * CARDAPIO CONTROLLER - Gestão do Cardápio (CRUD de Itens)
+ * ================================================================
+ *
+ * PROPÓSITO:
+ * Gerencia a listagem, criação, edição, exclusão (soft delete) e
+ * alternância de disponibilidade dos itens do cardápio. É também
+ * a tela inicial de todo cliente (perfil USUARIO) após o login.
+ *
+ * FUNCIONALIDADES:
+ * 1. Listar o cardápio completo (visível a todos os perfis logados)
+ * 2. Exibir formulário de novo item                  (só GERENTE)
+ * 3. Exibir formulário de edição de item existente    (só GERENTE)
+ * 4. Salvar (inserir ou atualizar) um item             (só GERENTE)
+ * 5. Excluir (soft delete) um item                     (só GERENTE)
+ * 6. Alternar disponibilidade (disponível/indisponível)(só GERENTE)
+ *
+ * ROTA MAPEADA: /app/cardapio (único endpoint, roteado por "acao")
+ *
+ * GET  sem acao          → lista o cardápio
+ * GET  acao=novo         → formulário de novo item        (só GERENTE)
+ * GET  acao=editar&id=X  → formulário preenchido           (só GERENTE)
+ * POST acao=salvar       → insere ou atualiza              (só GERENTE)
+ * POST acao=excluir      → soft delete (ativo=0)           (só GERENTE)
+ * POST acao=disponivel   → alterna disponibilidade         (só GERENTE)
+ *
+ * TABELA: cardapio (antes chamada item_cardapio — ver integrador_v2.sql)
+ * Schema:
+ * - id_cardapio        (PK, AUTO_INCREMENT)
+ * - categoria_id        (FK → categoria_item.id_categoria)
+ * - nome                (NOT NULL)
+ * - descricao            (TEXT)
+ * - preco                (DECIMAL 10,2)
+ * - tempo_preparo_min    (INT, default 15)
+ * - disponivel           (TINYINT(1), default 1)
+ * - ativo                (TINYINT(1), default 1 — soft delete)
+ *
+ * PERMISSÕES:
+ * ✅ Qualquer usuário logado pode LISTAR o cardápio (GET sem acao)
+ * ✅ Apenas GERENTE pode criar, editar, excluir ou alternar
+ *    disponibilidade — a checagem é feita em isGerente() e aplicada
+ *    tanto no doGet() (para acao=novo/editar) quanto no doPost()
+ *    (para todas as ações, já que toda escrita exige o perfil).
+ *
+ * FLUXO DE LISTAGEM (GET sem acao):
+ * 1. Busca todas as categorias (para montar filtros/selects na view)
+ * 2. Busca todos os itens do cardápio
+ * 3. Recupera mensagem de sucesso da sessão (se houver, ex: pós-salvar)
+ * 4. Encaminha para cardapio.jsp
+ *
+ * FLUXO DE SALVAR (POST acao=salvar):
+ * 1. Lê os parâmetros do formulário (id, categoriaId, nome, etc.)
+ * 2. Converte preço (aceita vírgula como separador decimal) e tempo
+ * 3. Se id <= 0 → é um item NOVO → monta objeto e insere
+ * 4. Se id > 0  → é uma EDIÇÃO → busca o item existente, atualiza
+ *    os campos e salva
+ * 5. Define mensagem de sucesso na sessão e redireciona para a lista
+ *
+ * FLUXO DE EXCLUSÃO (POST acao=excluir):
+ * 1. Lê o id do item
+ * 2. Chama dao.desativar(id) → soft delete (ativo=0), não remove a
+ *    linha do banco (preserva histórico de pedidos já feitos)
+ *
+ * FLUXO DE DISPONIBILIDADE (POST acao=disponivel):
+ * 1. Lê o id do item e o novo valor ("1" = disponível, outro = não)
+ * 2. Atualiza apenas a coluna "disponivel", sem afetar o resto do item
+ *
+ * EXEMPLO DE USO:
+ * ```
+ * // Listar:
+ * GET /app/cardapio
+ *
+ * // Novo item (form):
+ * GET /app/cardapio?acao=novo
+ *
+ * // Editar item (form preenchido):
+ * GET /app/cardapio?acao=editar&id=5
+ *
+ * // Salvar (novo ou edição):
+ * POST /app/cardapio
+ * acao=salvar&id=0&categoriaId=2&nome=Risoto&preco=45,00&tempoPreparoMin=25
+ *
+ * // Excluir:
+ * POST /app/cardapio
+ * acao=excluir&id=5
+ *
+ * // Alternar disponibilidade:
+ * POST /app/cardapio
+ * acao=disponivel&id=5&valor=0
+ * ```
+ *
+ * @author Sistema Integrador
+ * @version 3.0
+ * @see CardapioDAO
+ * @see Cardapio
+ * @see CategoriaItemDAO
+ */
+@WebServlet("/app/cardapio")
+public class CardapioController extends HttpServlet {
+
+    private static final long serialVersionUID = 1L;
+
+    /* ================================================================
+       MÉTODO GET - Roteador de Páginas
+       ================================================================
+
+       Decide o que exibir baseado no parâmetro "acao":
+
+       acao=novo    → exibirFormulario() (vazio)   — exige GERENTE
+       acao=editar  → exibirFormulario() (preenchido) — exige GERENTE
+       (sem acao)   → listar()                      — qualquer logado
+
+       IMPORTANTE: se um não-GERENTE tentar acessar novo/editar,
+       é redirecionado de volta para a listagem (sem mensagem de erro
+       explícita — apenas silenciosamente barrado).
+    */
+    @Override
+    protected void doGet(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+
+        System.out.println("\n========== CARDAPIO CONTROLLER GET ==========");
+        String acao = request.getParameter("acao");
+        System.out.println("📍 Ação solicitada: " + (acao != null ? acao : "(listar)"));
+
+        if ("novo".equals(acao) || "editar".equals(acao)) {
+            // ========== VERIFICAR PERMISSÃO (só GERENTE edita cardápio) ==========
+            if (!isGerente(request)) {
+                System.err.println("❌ Acesso negado: usuário não é GERENTE");
+                response.sendRedirect(request.getContextPath() + "/app/cardapio");
+                System.out.println("===============================================\n");
+                return;
+            }
+            System.out.println("🔀 Roteando para: exibirFormulario()");
+            exibirFormulario(request, response);
+        } else {
+            System.out.println("🔀 Roteando para: listar()");
+            listar(request, response);
+        }
+        System.out.println("===============================================\n");
+    }
+
+    /* ================================================================
+       MÉTODO POST - Roteador de Ações
+       ================================================================
+
+       Toda ação de escrita (salvar/excluir/disponivel) exige GERENTE.
+       A checagem é feita ANTES de olhar qual ação foi pedida — ou
+       seja, um não-GERENTE nunca chega nem perto de salvar/excluir.
+
+       acao=salvar     → salvar()
+       acao=excluir    → excluir()
+       acao=disponivel → alternarDisponibilidade()
+    */
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+
+        System.out.println("\n========== CARDAPIO CONTROLLER POST ==========");
+
+        // ========== VERIFICAR PERMISSÃO (toda escrita exige GERENTE) ==========
+        if (!isGerente(request)) {
+            System.err.println("❌ Acesso negado: usuário não é GERENTE");
+            response.sendRedirect(request.getContextPath() + "/app/cardapio");
+            System.out.println("================================================\n");
+            return;
+        }
+
+        String acao = request.getParameter("acao");
+        System.out.println("📍 Ação solicitada: " + acao);
+
+        switch (acao != null ? acao : "") {
+            case "salvar"     -> {
+                System.out.println("🔀 Roteando para: salvar()");
+                salvar(request, response);
+            }
+            case "excluir"    -> {
+                System.out.println("🔀 Roteando para: excluir()");
+                excluir(request, response);
+            }
+            case "disponivel" -> {
+                System.out.println("🔀 Roteando para: alternarDisponibilidade()");
+                alternarDisponibilidade(request, response);
+            }
+            default -> {
+                System.err.println("❌ Ação POST desconhecida: " + acao);
+                response.sendRedirect(request.getContextPath() + "/app/cardapio");
+            }
+        }
+        System.out.println("================================================\n");
+    }
+
+    // ── LISTAR ──────────────────────────────────────────────────────
+
+    /* ================================================================
+       LISTAR CARDÁPIO
+       ================================================================
+
+       URL: GET /app/cardapio (sem parâmetro "acao")
+       Acesso: qualquer usuário logado (GERENTE, FUNCIONARIO ou USUARIO)
+
+       Fluxo:
+       1. Busca todas as categorias ativas (para exibir agrupamento/
+          filtros na tela)
+       2. Busca todos os itens do cardápio
+       3. Marca "cardapio" como página ativa (usado no menu lateral)
+       4. Recupera e limpa mensagem de sucesso salva na sessão
+          (padrão POST-REDIRECT-GET: a mensagem é setada antes do
+          redirect e consumida aqui, uma única vez)
+       5. Encaminha para a JSP de listagem
+    */
+    private void listar(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+
+        System.out.println("📋 Iniciando listagem do cardápio");
+
+        try (Connection conn = Conexao.getConnection()) {
+
+            System.out.println("⏳ Buscando categorias...");
+            List<CategoriaItem> categorias = new CategoriaItemDAO(conn).listar();
+            System.out.println("✅ " + categorias.size() + " categoria(s) encontrada(s)");
+
+            System.out.println("⏳ Buscando itens do cardápio...");
+            List<Cardapio> itens = new CardapioDAO(conn).listar();
+            System.out.println("✅ " + itens.size() + " item(ns) encontrado(s)");
+
+            request.setAttribute("categorias",  categorias);
+            request.setAttribute("itens",       itens);
+            request.setAttribute("paginaAtiva", "cardapio");
+
+            // ---- Recupera mensagem de sucesso (fluxo POST-REDIRECT-GET) ----
+            String msg = (String) request.getSession().getAttribute("msgSucesso");
+            if (msg != null) {
+                System.out.println("💬 Mensagem de sucesso encontrada: " + msg);
+                request.setAttribute("msgSucesso", msg);
+                request.getSession().removeAttribute("msgSucesso");
+            }
+
+            System.out.println("➡️ Encaminhando para cardapio.jsp");
+            request.getRequestDispatcher("/WEB-INF/views/cardapio/cardapio.jsp")
+                   .forward(request, response);
+
+        } catch (Exception e) {
+            // ========== TRATAMENTO DE ERRO ==========
+            System.err.println("❌ ERRO ao listar cardápio:");
+            System.err.println("   Tipo: " + e.getClass().getName());
+            System.err.println("   Mensagem: " + e.getMessage());
+            e.printStackTrace();
+            request.getRequestDispatcher("/WEB-INF/views/error/500.jsp")
+                   .forward(request, response);
+        }
+    }
+
+    // ── FORMULÁRIO ──────────────────────────────────────────────────
+
+    /* ================================================================
+       EXIBIR FORMULÁRIO (NOVO ITEM OU EDIÇÃO)
+       ================================================================
+
+       URL: GET /app/cardapio?acao=novo
+            GET /app/cardapio?acao=editar&id=X
+       Acesso: apenas GERENTE (já validado em doGet() antes de chamar)
+
+       Fluxo:
+       1. Busca todas as categorias (para popular o <select> do form)
+       2. Se veio parâmetro "id" → busca o item existente e disponibiliza
+          como atributo "item" (a JSP usa isso para pré-preencher os
+          campos — se "id" não vier, o form fica em branco = modo "novo")
+       3. Encaminha para form_item.jsp (mesma view serve novo e edição)
+    */
+    private void exibirFormulario(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+
+        System.out.println("📝 Iniciando exibição do formulário de item");
+
+        try (Connection conn = Conexao.getConnection()) {
+
+            System.out.println("⏳ Buscando categorias para o formulário...");
+            request.setAttribute("categorias",  new CategoriaItemDAO(conn).listar());
+            request.setAttribute("paginaAtiva", "cardapio");
+
+            String idStr = request.getParameter("id");
+            if (idStr != null) {
+                System.out.println("⏳ Modo EDIÇÃO — buscando item id=" + idStr);
+                Cardapio item = new CardapioDAO(conn).buscarPorId(parseId(idStr));
+                request.setAttribute("item", item);
+                System.out.println(item != null
+                        ? "✅ Item encontrado: " + item.getNome()
+                        : "⚠️ Item não encontrado para id=" + idStr);
+            } else {
+                System.out.println("📄 Modo NOVO — formulário em branco");
+            }
+
+            request.getRequestDispatcher("/WEB-INF/views/cardapio/form_item.jsp")
+                   .forward(request, response);
+
+        } catch (Exception e) {
+            // ========== TRATAMENTO DE ERRO ==========
+            System.err.println("❌ ERRO ao exibir formulário:");
+            System.err.println("   Tipo: " + e.getClass().getName());
+            System.err.println("   Mensagem: " + e.getMessage());
+            e.printStackTrace();
+            request.getRequestDispatcher("/WEB-INF/views/error/500.jsp")
+                   .forward(request, response);
+        }
+    }
+
+    // ── SALVAR ──────────────────────────────────────────────────────
+
+    /* ================================================================
+       SALVAR ITEM (INSERIR OU ATUALIZAR)
+       ================================================================
+
+       URL: POST /app/cardapio (acao=salvar)
+       Acesso: apenas GERENTE (já validado em doPost())
+
+       Parâmetros esperados:
+       - id              (0 ou negativo = novo item; >0 = edição)
+       - categoriaId
+       - nome
+       - descricao       (opcional)
+       - preco           (aceita vírgula: "45,00" → convertido para "45.00")
+       - tempoPreparoMin
+
+       Fluxo:
+       1. Lê e converte os parâmetros do formulário
+       2. Se id <= 0:
+            → cria um novo Cardapio, marca como disponível e ativo
+            → insere no banco
+       3. Se id > 0:
+            → busca o item existente
+            → se encontrado, atualiza os campos e chama dao.editar()
+              (disponibilidade e ativo NÃO são alterados aqui — isso
+              é feito pelas ações "disponivel" e "excluir" separadamente)
+       4. Define mensagem de sucesso/erro na sessão
+       5. Redireciona (POST-REDIRECT-GET) de volta para a listagem
+    */
+    private void salvar(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+
+        System.out.println("💾 Iniciando salvamento de item do cardápio");
+
+        // ========== STEP 1: LER PARÂMETROS ==========
+        int    id          = parseId(request.getParameter("id"));
+        int    categoriaId = parseId(request.getParameter("categoriaId"));
+        String nome        = request.getParameter("nome");
+        String descricao   = request.getParameter("descricao");
+        String precoStr    = request.getParameter("preco");
+        String tempoStr    = request.getParameter("tempoPreparoMin");
+
+        System.out.println("📋 Dados recebidos:");
+        System.out.println("   - id: " + id);
+        System.out.println("   - categoriaId: " + categoriaId);
+        System.out.println("   - nome: " + nome);
+        System.out.println("   - preco (raw): " + precoStr);
+        System.out.println("   - tempoPreparoMin (raw): " + tempoStr);
+
+        try (Connection conn = Conexao.getConnection()) {
+
+            // ---- Conversão do preço aceitando vírgula como decimal ----
+            BigDecimal preco = new BigDecimal(precoStr.replace(",", "."));
+            int tempo        = Integer.parseInt(tempoStr);
+            CardapioDAO dao = new CardapioDAO(conn);
+
+            if (id <= 0) {
+                // ========== MODO: NOVO ITEM ==========
+                System.out.println("⏳ Inserindo novo item...");
+                Cardapio novo = new Cardapio();
+                novo.setCategoriaId(categoriaId);
+                novo.setNome(nome.trim());
+                novo.setDescricao(descricao != null ? descricao.trim() : "");
+                novo.setPreco(preco);
+                novo.setTempoPreparoMin(tempo);
+                novo.setDisponivel(true);
+                novo.setAtivo(true);
+                dao.inserir(novo);
+                System.out.println("✅ Item inserido com sucesso: " + novo.getNome());
+                request.getSession().setAttribute("msgSucesso", "Item adicionado com sucesso!");
+            } else {
+                // ========== MODO: EDIÇÃO ==========
+                System.out.println("⏳ Buscando item existente para edição...");
+                Cardapio item = dao.buscarPorId(id);
+                if (item != null) {
+                    item.setCategoriaId(categoriaId);
+                    item.setNome(nome.trim());
+                    item.setDescricao(descricao != null ? descricao.trim() : "");
+                    item.setPreco(preco);
+                    item.setTempoPreparoMin(tempo);
+                    dao.editar(item);
+                    System.out.println("✅ Item atualizado com sucesso: " + item.getNome());
+                } else {
+                    System.err.println("⚠️ Item id=" + id + " não encontrado — nada foi atualizado");
+                }
+                request.getSession().setAttribute("msgSucesso", "Item atualizado com sucesso!");
+            }
+
+        } catch (Exception e) {
+            // ========== TRATAMENTO DE ERRO ==========
+            System.err.println("❌ ERRO ao salvar item:");
+            System.err.println("   Tipo: " + e.getClass().getName());
+            System.err.println("   Mensagem: " + e.getMessage());
+            e.printStackTrace();
+            request.getSession().setAttribute("msgSucesso", "Erro ao salvar o item.");
+        }
+
+        // ========== REDIRECIONAR (POST-REDIRECT-GET) ==========
+        response.sendRedirect(request.getContextPath() + "/app/cardapio");
+    }
+
+    // ── EXCLUIR ─────────────────────────────────────────────────────
+
+    /* ================================================================
+       EXCLUIR ITEM (SOFT DELETE)
+       ================================================================
+
+       URL: POST /app/cardapio (acao=excluir)
+       Acesso: apenas GERENTE
+
+       Não remove a linha do banco — apenas marca ativo=0, preservando
+       o histórico de item_pedido de pedidos já realizados com este item.
+    */
+    private void excluir(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
+
+        int id = parseId(request.getParameter("id"));
+        System.out.println("🗑️ Iniciando exclusão (soft delete) do item id=" + id);
+
+        try (Connection conn = Conexao.getConnection()) {
+            new CardapioDAO(conn).desativar(id);
+            System.out.println("✅ Item id=" + id + " desativado (ativo=0)");
+            request.getSession().setAttribute("msgSucesso", "Item removido do cardápio.");
+        } catch (Exception e) {
+            System.err.println("❌ ERRO ao excluir item id=" + id + ": " + e.getMessage());
+            e.printStackTrace();
+        }
+        response.sendRedirect(request.getContextPath() + "/app/cardapio");
+    }
+
+    // ── DISPONIBILIDADE ─────────────────────────────────────────────
+
+    /* ================================================================
+       ALTERNAR DISPONIBILIDADE
+       ================================================================
+
+       URL: POST /app/cardapio (acao=disponivel)
+       Acesso: apenas GERENTE
+
+       Parâmetros:
+       - id:    identificador do item
+       - valor: "1" = disponível, qualquer outro valor = indisponível
+
+       Usado tipicamente para marcar itens temporariamente esgotados
+       sem precisar excluí-los do cardápio.
+    */
+    private void alternarDisponibilidade(HttpServletRequest request,
+                                         HttpServletResponse response) throws IOException {
+        int     id   = parseId(request.getParameter("id"));
+        boolean disp = "1".equals(request.getParameter("valor"));
+
+        System.out.println("🔄 Alternando disponibilidade do item id=" + id
+                + " → " + (disp ? "DISPONÍVEL" : "INDISPONÍVEL"));
+
+        try (Connection conn = Conexao.getConnection()) {
+            new CardapioDAO(conn).atualizarDisponibilidade(id, disp);
+            System.out.println("✅ Disponibilidade atualizada com sucesso");
+        } catch (Exception e) {
+            System.err.println("❌ ERRO ao atualizar disponibilidade do item id=" + id
+                    + ": " + e.getMessage());
+            e.printStackTrace();
+        }
+        response.sendRedirect(request.getContextPath() + "/app/cardapio");
+    }
+
+    // ── HELPERS ─────────────────────────────────────────────────────
+
+    /**
+     * Verifica se o usuário logado na sessão tem perfil GERENTE.
+     * Usado para proteger todas as operações de escrita do cardápio.
+     */
+    private boolean isGerente(HttpServletRequest request) {
+        Usuario u = (Usuario) request.getSession().getAttribute("usuarioLogado");
+        return u != null && "GERENTE".equals(u.getPerfil());
+    }
+
+    /**
+     * Converte uma string de parâmetro para int de forma segura.
+     * Retorna -1 caso a conversão falhe (parâmetro nulo, vazio ou
+     * não numérico) — convenção usada em todo o controller para
+     * indicar "id inválido / não informado".
+     */
+    private int parseId(String v) {
+        try { return Integer.parseInt(v); } catch (Exception e) { return -1; }
+    }
+}
+
+/* ================================================================
+   RESUMO DO CONTROLLER
+   ================================================================
+
+   ROTA ÚNICA: /app/cardapio (roteada internamente pelo parâmetro "acao")
+
+   AÇÕES MAPEADAS:
+   1. GET  (sem acao)          → listar()                  — qualquer logado
+   2. GET  acao=novo           → exibirFormulario() (vazio) — só GERENTE
+   3. GET  acao=editar&id=X    → exibirFormulario() (cheio) — só GERENTE
+   4. POST acao=salvar         → salvar()                  — só GERENTE
+   5. POST acao=excluir        → excluir()                 — só GERENTE
+   6. POST acao=disponivel     → alternarDisponibilidade()  — só GERENTE
+
+   CAMPOS DO FORMULÁRIO (novo/editar):
+   - id              (oculto, 0 = novo)
+   - categoriaId*
+   - nome*
+   - descricao
+   - preco*          (aceita vírgula como decimal)
+   - tempoPreparoMin*
+
+   PERMISSÕES:
+   ✅ Leitura (listagem) liberada para qualquer perfil logado
+   ✅ Toda escrita (novo/editar/excluir/disponibilidade) exige GERENTE
+   ✅ Checagem feita tanto no doGet() quanto no doPost(), nunca
+      delegada só à view
+
+   SOFT DELETE:
+   ✅ excluir() nunca faz DELETE físico — apenas ativo=0, preservando
+      o vínculo histórico com item_pedido de pedidos antigos
+
+   PADRÃO POST-REDIRECT-GET:
+   ✅ Toda ação de escrita termina em sendRedirect() para /app/cardapio
+   ✅ Mensagens de sucesso/erro trafegam via sessão e são consumidas
+      (removidas) na primeira listagem seguinte
+
+   DEPENDÊNCIAS:
+   - CardapioDAO: acesso à tabela cardapio
+   - CategoriaItemDAO: acesso à tabela categoria_item
+   - Cardapio / CategoriaItem: models
+   - Conexao: gerenciamento de conexões
+
+   OBSERVAÇÕES:
+   - Conexões fecham automaticamente (try-with-resources)
+   - Logs detalhados em cada etapa (System.out / System.err)
+   ================================================================ */
