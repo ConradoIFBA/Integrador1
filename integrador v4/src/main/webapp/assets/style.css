@@ -1,0 +1,973 @@
+/* ================================================================
+   STYLE.CSS — TEMA VISUAL DO SISTEMA (v4 — inspirado no protótipo Figma)
+   ================================================================
+   Esta é a folha de estilo COMPARTILHADA por todas as telas logadas
+   do sistema (todas incluem <link ... href=".../assets/style.css">
+   no <head>). Antes desta versão, o projeto usava um tema CLARO com
+   laranja como cor primária; esta versão migra para um tema ESCURO
+   (fundo quase-preto, cards em "slate" escuro, texto claro) para
+   ficar visualmente mais próximo do protótipo de referência feito
+   no Figma ("Sistema de Pedidos Restaurante").
+
+   ⚠️ IMPORTANTE — sobre "fidelidade" ao Figma:
+   Não temos acesso ao arquivo Figma em modo de inspeção (dev mode),
+   só às capturas de tela. Por isso as cores/medidas abaixo são uma
+   aproximação cuidadosa (mesma linguagem visual: fundo escuro,
+   verde como cor de destaque principal, badges coloridos por
+   status, cards arredondados com bastante respiro) e não um export
+   pixel-perfect. Se quiser afinar alguma cor específica, é só picá
+   -la direto no Figma (botão direito → Copy/Paste as → CSS) e trocar
+   a variável correspondente aqui embaixo — como tudo é centralizado
+   em CSS custom properties (:root), o ajuste se propaga sozinho
+   para o sistema inteiro.
+
+   O QUE MUDOU EM RELAÇÃO À VERSÃO ANTERIOR (tema claro):
+     - Paleta inteira trocada de clara/laranja para escura/verde
+     - Sidebar ganhou "marca" (ícone quadrado verde + nome do app)
+       e item ativo com destaque em tom oliva/dourado (como no Figma)
+     - Cards, tabelas, badges e formulários redesenhados para o
+       fundo escuro (não é só "inverter cor de fundo": contraste,
+       bordas sutis e sombras foram recalibrados)
+     - Novas classes de apoio usadas pelas páginas redesenhadas:
+       .pill-filtro (filtros tipo "Todos/Pratos/Bebidas..."),
+       .icon-box (ícone dentro de quadrado colorido, como nos
+       stat-cards do Painel), .switch (toggle liga/desliga, como o
+       "Disponível" do Cardápio), .btn-icon (botão só com ícone,
+       como os de editar/excluir)
+   ================================================================ */
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box
+}
+
+:root {
+	/* ── Cor primária (verde — identidade do app "Integrador") ── */
+	--primary: #22c55e;
+	--primary-hover: #16a34a;
+	--primary-light: rgba(34, 197, 94, .12);
+	/* ── Cores de status (mesmo papel semântico em toda a aplicação):
+     sucesso/livre/disponível = verde | perigo/ocupada/cancelado = vermelho
+     atenção/reservada/em preparo = âmbar | informação/recebido/mesa = azul
+     delivery/destaque secundário = roxo                              ── */
+	--success-color: #22c55e;
+	--success-bg: rgba(34, 197, 94, .15);
+	--success-border: rgba(34, 197, 94, .35);
+	--error-color: #ef4444;
+	--error-bg: rgba(239, 68, 68, .15);
+	--error-border: rgba(239, 68, 68, .35);
+	--warning-color: #f59e0b;
+	--warning-bg: rgba(245, 158, 11, .15);
+	--warning-border: rgba(245, 158, 11, .35);
+	--info-color: #3b82f6;
+	--info-bg: rgba(59, 130, 246, .15);
+	--info-border: rgba(59, 130, 246, .35);
+	--purple-color: #a78bfa;
+	--purple-bg: rgba(167, 139, 250, .15);
+	--purple-border: rgba(167, 139, 250, .35);
+	/* ── Destaque "oliva/dourado" — usado só no item ativo da sidebar,
+     copiando o tom terroso que aparece selecionado no protótipo ── */
+	--accent-active: #7c6a35;
+	--accent-active-text: #f1e9c9;
+	/* ── Escala de fundo escuro (do mais profundo ao mais claro) ── */
+	--bg-app: #0b0e14; /* fundo geral da página (atrás dos cards) */
+	--bg-sidebar: #11151d; /* fundo da barra lateral */
+	--bg-card: #161b25; /* fundo padrão de cards/tabelas/modais */
+	--bg-card-hover: #1c222f; /* hover sutil em linhas/cards clicáveis */
+	--bg-input: #0f131a; /* fundo de inputs/selects */
+	--border-subtle: rgba(255, 255, 255, .08);
+	--border-subtle-2: rgba(255, 255, 255, .14);
+	/* ── Texto ── */
+	--text-primary: #f1f5f9; /* títulos, valores em destaque */
+	--text-secondary: #94a3b8; /* labels, texto secundário */
+	--text-muted: #64748b; /* texto terciário/desabilitado */
+	--sidebar-width: 250px;
+	--topbar-height: 64px;
+	--radius: 14px;
+	--radius-sm: 8px;
+	--radius-pill: 999px;
+	--shadow: 0 4px 16px rgba(0, 0, 0, .35);
+	--shadow-md: 0 8px 28px rgba(0, 0, 0, .45);
+	--transition: all .2s cubic-bezier(.4, 0, .2, 1)
+}
+
+/* ================================================================
+   TEMA CLARO — alternativa opcional ao escuro (padrão)
+   ================================================================
+   Ativado colocando o atributo data-tema="claro" na tag <html> —
+   isso é feito pelo script no rodapé de _sidebar.jsp, que lê a
+   preferência salva no localStorage do navegador (chave "tema") e
+   aplica o atributo assim que a página carrega, além de alternar no
+   clique do botão de sol/lua.
+
+   Por que um ATRIBUTO em <html> e não uma classe em <body>: o
+   atributo em <html> é aplicado o mais cedo possível (antes mesmo do
+   <body> existir no parsing), o que reduz — ainda que não elimine
+   totalmente, já que o script roda dentro da sidebar, não no <head>
+   — o "flash" de tema errado ao carregar a página.
+
+   Só as CORES mudam aqui (redefinindo as mesmas variáveis do :root
+   escuro) — nenhuma outra regra do arquivo (layout, espaçamento,
+   tamanho de fonte) depende de tema, então TODO o resto do CSS
+   funciona igual nos dois temas automaticamente, sem duplicação.
+   ================================================================ */
+html[data-tema="claro"] {
+	--primary: #16a34a;
+	--primary-hover: #15803d;
+	--primary-light: rgba(22, 163, 74, .10);
+	--success-color: #16a34a;
+	--success-bg: rgba(22, 163, 74, .12);
+	--success-border: rgba(22, 163, 74, .3);
+	--error-color: #dc2626;
+	--error-bg: rgba(220, 38, 38, .10);
+	--error-border: rgba(220, 38, 38, .3);
+	--warning-color: #d97706;
+	--warning-bg: rgba(217, 119, 6, .12);
+	--warning-border: rgba(217, 119, 6, .3);
+	--info-color: #2563eb;
+	--info-bg: rgba(37, 99, 235, .10);
+	--info-border: rgba(37, 99, 235, .3);
+	--purple-color: #7c3aed;
+	--purple-bg: rgba(124, 58, 237, .10);
+	--purple-border: rgba(124, 58, 237, .3);
+	--accent-active: #f3e6b8;
+	--accent-active-text: #5c4a12;
+	--bg-app: #f4f5f7;
+	--bg-sidebar: #ffffff;
+	--bg-card: #ffffff;
+	--bg-card-hover: #f1f3f5;
+	--bg-input: #ffffff;
+	--border-subtle: rgba(0, 0, 0, .08);
+	--border-subtle-2: rgba(0, 0, 0, .14);
+	--text-primary: #1e293b;
+	--text-secondary: #64748b;
+	--text-muted: #94a3b8;
+	--shadow: 0 2px 10px rgba(0, 0, 0, .06);
+	--shadow-md: 0 8px 24px rgba(0, 0, 0, .10);
+}
+
+/* Transição suave de cor ao alternar o tema — só nas propriedades
+   que realmente mudam entre os dois temas, para não deixar TUDO na
+   página "derretendo" ao trocar (ex: hover de botão continua
+   instantâneo, só o tema em si transiciona). */
+body, .sidebar, .card, .stat-card, .mesa-card, .item-card, table, .modal
+	{
+	transition: background-color .25s ease, border-color .25s ease, color
+		.25s ease
+}
+
+body {
+	font-family: 'Segoe UI', system-ui, -apple-system, Tahoma, Geneva,
+		Verdana, sans-serif;
+	background: var(--bg-app);
+	color: var(--text-primary);
+	font-size: 14px;
+	line-height: 1.6
+}
+
+.main-container {
+	display: flex;
+	min-height: 100vh
+}
+
+/* ================================================================
+   SIDEBAR
+   ================================================================ */
+.sidebar {
+	width: var(--sidebar-width);
+	background: var(--bg-sidebar);
+	color: var(--text-primary);
+	position: fixed;
+	left: 0;
+	top: 0;
+	height: 100vh;
+	overflow-y: auto;
+	border-right: 1px solid var(--border-subtle);
+	z-index: 1000;
+	display: flex;
+	flex-direction: column
+}
+
+/* Cabeçalho da sidebar: ícone quadrado verde ("marca") + nome do app,
+   reproduzindo o bloco "🍽 Integrador / Sistema de Pedidos" do Figma. */
+.sidebar-header {
+	padding: 22px 20px;
+	display: flex;
+	align-items: center;
+	gap: 12px
+}
+
+.sidebar-header .brand-icon {
+	width: 38px;
+	height: 38px;
+	border-radius: 10px;
+	background: var(--primary);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 19px;
+	flex-shrink: 0
+}
+
+.sidebar-header .brand-text h1 {
+	font-size: 16px;
+	font-weight: 700;
+	line-height: 1.2
+}
+
+.sidebar-header .brand-text p {
+	font-size: 11px;
+	color: var(--text-secondary);
+	margin-top: 1px
+}
+
+.sidebar-menu {
+	list-style: none;
+	padding: 8px 12px;
+	flex: 1
+}
+
+.sidebar-menu li {
+	margin-bottom: 2px
+}
+
+.sidebar-menu a {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 12px;
+	border-radius: var(--radius-sm);
+	color: var(--text-secondary);
+	text-decoration: none;
+	transition: var(--transition);
+	font-weight: 500
+}
+
+.sidebar-menu a:hover {
+	background: var(--bg-card-hover);
+	color: var(--text-primary)
+}
+/* Item ativo: fundo oliva/dourado sólido — é o destaque mais forte da
+   sidebar, igual ao botão de navegação selecionado no Figma. */
+.sidebar-menu a.active {
+	background: var(--accent-active);
+	color: var(--accent-active-text)
+}
+
+.sidebar-menu .icon {
+	font-size: 17px;
+	width: 20px;
+	text-align: center
+}
+
+.sidebar-menu .label {
+	font-size: 14px
+}
+
+/* Rodapé da sidebar: avatar + nome + "pílula" de perfil + sair —
+   igual ao bloco "Roberto Lima / Gerência" fixado embaixo no Figma. */
+.sidebar-footer {
+	padding: 16px;
+	border-top: 1px solid var(--border-subtle)
+}
+
+.sidebar-footer .user-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 10px
+}
+
+.sidebar-footer .user-avatar {
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	background: var(--primary);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #06240f;
+	font-weight: 700;
+	font-size: 14px;
+	flex-shrink: 0
+}
+
+.sidebar-footer .user-name {
+	font-size: 13px;
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis
+}
+
+.sidebar-footer .role-pill {
+	display: inline-block;
+	margin-top: 2px;
+	padding: 1px 9px;
+	border-radius: var(--radius-pill);
+	font-size: 10px;
+	font-weight: 700;
+	background: var(--success-bg);
+	color: var(--success-color)
+}
+
+.sidebar-footer .logout-link {
+	display: block;
+	text-align: center;
+	padding: 7px;
+	border-radius: var(--radius-sm);
+	background: var(--bg-card-hover);
+	color: var(--text-secondary);
+	font-size: 12px;
+	text-decoration: none
+}
+
+.sidebar-footer .logout-link:hover {
+	color: var(--text-primary)
+}
+
+/* Botão de alternar tema claro/escuro — círculo pequeno ao lado do
+   nome do usuário no rodapé da sidebar. */
+.theme-toggle-btn {
+	width: 30px;
+	height: 30px;
+	border-radius: 50%;
+	border: 1px solid var(--border-subtle-2);
+	background: var(--bg-card-hover);
+	cursor: pointer;
+	font-size: 14px;
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: var(--transition)
+}
+
+.theme-toggle-btn:hover {
+	border-color: var(--primary);
+	transform: scale(1.06)
+}
+
+/* ================================================================
+   MAIN / TOPBAR / CONTEÚDO
+   ================================================================ */
+.main-content {
+	flex: 1;
+	margin-left: var(--sidebar-width);
+	display: flex;
+	flex-direction: column;
+	min-height: 100vh
+}
+
+.topbar {
+	background: var(--bg-app);
+	height: var(--topbar-height);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0 28px;
+	border-bottom: 1px solid var(--border-subtle);
+	position: sticky;
+	top: 0;
+	z-index: 100
+}
+
+.topbar-left h2 {
+	font-size: 20px;
+	font-weight: 700
+}
+
+.topbar-right {
+	display: flex;
+	align-items: center;
+	gap: 16px
+}
+
+.user-info {
+	display: flex;
+	align-items: center;
+	gap: 10px
+}
+
+.user-avatar {
+	width: 36px;
+	height: 36px;
+	border-radius: 50%;
+	background: var(--primary);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #06240f;
+	font-weight: 700;
+	font-size: 14px
+}
+
+.user-details {
+	display: flex;
+	flex-direction: column
+}
+
+.user-details .name {
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1.2
+}
+
+.user-details .role {
+	font-size: 11px;
+	color: var(--text-secondary);
+	line-height: 1.2
+}
+
+.content {
+	flex: 1;
+	padding: 28px
+}
+
+/* ================================================================
+   CARDS / STAT-CARDS
+   ================================================================ */
+.card {
+	background: var(--bg-card);
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+	padding: 24px
+}
+
+.card h3 {
+	font-size: 16px;
+	font-weight: 700;
+	margin-bottom: 18px;
+	color: var(--text-primary)
+}
+
+.cards-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 18px;
+	margin-bottom: 24px
+}
+
+/* Stat-card no estilo Figma: ícone em quadrado colorido no topo,
+   label pequeno, valor grande em destaque e uma linha de contexto
+   opcional embaixo (ex: "+12% vs período anterior" ou "de 12 no total"). */
+.stat-card {
+	background: var(--bg-card);
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius);
+	box-shadow: var(--shadow);
+	padding: 20px
+}
+
+.stat-card .icon-box {
+	width: 38px;
+	height: 38px;
+	border-radius: 10px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 18px;
+	margin-bottom: 14px
+}
+
+.stat-card .stat-label {
+	font-size: 12px;
+	color: var(--text-secondary);
+	margin-bottom: 6px;
+	font-weight: 500
+}
+
+.stat-card .stat-value {
+	font-size: 26px;
+	font-weight: 700;
+	color: var(--text-primary);
+	line-height: 1.1
+}
+
+.stat-card .stat-context {
+	font-size: 12px;
+	color: var(--text-muted);
+	margin-top: 6px
+}
+
+.stat-card .stat-context.positivo {
+	color: var(--success-color);
+	font-weight: 600
+}
+
+/* Variações de cor do icon-box, uma por "papel" semântico —
+   reaproveitadas em várias telas (Painel, Mesas, etc). */
+.icon-box.verde {
+	background: var(--success-bg);
+	color: var(--success-color)
+}
+
+.icon-box.vermelho {
+	background: var(--error-bg);
+	color: var(--error-color)
+}
+
+.icon-box.ambar {
+	background: var(--warning-bg);
+	color: var(--warning-color)
+}
+
+.icon-box.azul {
+	background: var(--info-bg);
+	color: var(--info-color)
+}
+
+.icon-box.roxo {
+	background: var(--purple-bg);
+	color: var(--purple-color)
+}
+
+/* ================================================================
+   FORM
+   ================================================================ */
+.form-group {
+	margin-bottom: 18px
+}
+
+.form-group label {
+	display: block;
+	margin-bottom: 7px;
+	font-weight: 600;
+	color: var(--text-primary);
+	font-size: 13px
+}
+
+.form-group input, .form-group select, .form-group textarea {
+	width: 100%;
+	padding: 10px 13px;
+	border: 1.5px solid var(--border-subtle-2);
+	border-radius: var(--radius-sm);
+	font-size: 14px;
+	font-family: inherit;
+	transition: var(--transition);
+	background: var(--bg-input);
+	color: var(--text-primary)
+}
+
+.form-group input::placeholder, .form-group textarea::placeholder {
+	color: var(--text-muted)
+}
+
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus
+	{
+	outline: none;
+	border-color: var(--primary);
+	box-shadow: 0 0 0 3px var(--primary-light)
+}
+
+.form-group textarea {
+	min-height: 80px;
+	resize: vertical
+}
+
+/* ================================================================
+   BOTÕES
+   ================================================================ */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 7px;
+	padding: 10px 20px;
+	border: none;
+	border-radius: var(--radius-sm);
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: var(--transition);
+	text-decoration: none;
+	font-family: inherit
+}
+
+.btn-primary {
+	background: var(--primary);
+	color: #06240f
+}
+
+.btn-primary:hover {
+	background: var(--primary-hover);
+	transform: translateY(-1px)
+}
+
+.btn-secondary {
+	background: var(--bg-card-hover);
+	color: var(--text-primary);
+	border: 1px solid var(--border-subtle-2)
+}
+
+.btn-secondary:hover {
+	background: var(--border-subtle-2)
+}
+
+.btn-success {
+	background: var(--success-color);
+	color: #06240f
+}
+
+.btn-danger {
+	background: transparent;
+	color: var(--error-color);
+	border: 1.5px solid var(--error-border)
+}
+
+.btn-danger:hover {
+	background: var(--error-bg)
+}
+
+.btn-warning {
+	background: var(--warning-color);
+	color: #3a2503
+}
+
+.btn-sm {
+	padding: 7px 14px;
+	font-size: 13px
+}
+
+/* Botão "só ícone" — usado em editar/excluir dentro dos cards do
+   cardápio e nas linhas da tabela de pedidos (ícone de olho, etc). */
+.btn-icon {
+	width: 32px;
+	height: 32px;
+	padding: 0;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--border-subtle-2);
+	background: var(--bg-card-hover);
+	color: var(--text-secondary);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 14px;
+	cursor: pointer;
+	transition: var(--transition);
+	text-decoration: none
+}
+
+.btn-icon:hover {
+	color: var(--text-primary);
+	border-color: var(--text-secondary)
+}
+
+.btn-icon.danger:hover {
+	color: var(--error-color);
+	border-color: var(--error-color)
+}
+
+/* ================================================================
+   PÍLULAS DE FILTRO (Todos / Pratos / Bebidas / status, etc.)
+   ================================================================ */
+.pill-filtro {
+	padding: 8px 18px;
+	border-radius: var(--radius-pill);
+	border: 1px solid var(--border-subtle-2);
+	background: var(--bg-card);
+	color: var(--text-secondary);
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: var(--transition)
+}
+
+.pill-filtro:hover {
+	color: var(--text-primary)
+}
+
+.pill-filtro.ativo {
+	background: var(--primary);
+	border-color: var(--primary);
+	color: #06240f
+}
+
+/* ================================================================
+   TABELA
+   ================================================================ */
+.table-wrapper {
+	overflow-x: auto;
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius)
+}
+
+table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+	background: var(--bg-card)
+}
+
+thead {
+	background: var(--bg-card-hover)
+}
+
+th {
+	padding: 12px 15px;
+	text-align: left;
+	font-weight: 700;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: .5px;
+	color: var(--text-secondary);
+	border-bottom: 1px solid var(--border-subtle)
+}
+
+td {
+	padding: 14px 15px;
+	border-bottom: 1px solid var(--border-subtle);
+	color: var(--text-primary)
+}
+
+tbody tr:hover {
+	background: var(--bg-card-hover)
+}
+
+tbody tr:last-child td {
+	border-bottom: none
+}
+
+/* ================================================================
+   ALERTAS
+   ================================================================ */
+.alert {
+	padding: 12px 16px;
+	border-radius: var(--radius-sm);
+	margin-bottom: 18px;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	font-weight: 500
+}
+
+.alert-success {
+	background: var(--success-bg);
+	color: #86efac;
+	border: 1px solid var(--success-border)
+}
+
+.alert-error {
+	background: var(--error-bg);
+	color: #fca5a5;
+	border: 1px solid var(--error-border)
+}
+
+.alert-warning {
+	background: var(--warning-bg);
+	color: #fcd34d;
+	border: 1px solid var(--warning-border)
+}
+
+.alert-info {
+	background: var(--info-bg);
+	color: #93c5fd;
+	border: 1px solid var(--info-border)
+}
+
+/* ================================================================
+   BADGES (status coloridos — mesmo mapa de cores em toda a aplicação)
+   ================================================================ */
+.badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 4px 11px;
+	border-radius: var(--radius-pill);
+	font-size: 12px;
+	font-weight: 600
+}
+
+.badge::before {
+	content: '';
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: currentColor
+}
+
+.badge-success {
+	background: var(--success-bg);
+	color: var(--success-color)
+}
+
+.badge-danger {
+	background: var(--error-bg);
+	color: var(--error-color)
+}
+
+.badge-warning {
+	background: var(--warning-bg);
+	color: var(--warning-color)
+}
+
+.badge-info {
+	background: var(--info-bg);
+	color: var(--info-color)
+}
+
+.badge-roxo {
+	background: var(--purple-bg);
+	color: var(--purple-color)
+}
+
+.badge-urgente {
+	background: var(--error-bg);
+	color: var(--error-color)
+}
+
+/* ================================================================
+   TOGGLE SWITCH (usado no "Disponível" do Cardápio)
+   ================================================================ */
+.switch {
+	position: relative;
+	display: inline-block;
+	width: 40px;
+	height: 22px;
+	flex-shrink: 0
+}
+
+.switch input {
+	opacity: 0;
+	width: 0;
+	height: 0
+}
+
+.switch .track {
+	position: absolute;
+	inset: 0;
+	background: var(--border-subtle-2);
+	border-radius: var(--radius-pill);
+	transition: var(--transition);
+	cursor: pointer
+}
+
+.switch .track::before {
+	content: '';
+	position: absolute;
+	width: 16px;
+	height: 16px;
+	left: 3px;
+	top: 3px;
+	background: #fff;
+	border-radius: 50%;
+	transition: var(--transition)
+}
+
+.switch input:checked+.track {
+	background: var(--success-color)
+}
+
+.switch input:checked+.track::before {
+	transform: translateX(18px)
+}
+
+/* ================================================================
+   EMPTY STATE
+   ================================================================ */
+.empty-state {
+	text-align: center;
+	padding: 50px 20px;
+	color: var(--text-secondary)
+}
+
+.empty-state .icon {
+	font-size: 44px;
+	margin-bottom: 14px;
+	opacity: .6
+}
+
+/* ================================================================
+   UTILS
+   ================================================================ */
+.text-center {
+	text-align: center
+}
+
+.text-right {
+	text-align: right
+}
+
+.text-muted {
+	color: var(--text-secondary)
+}
+
+.mt-10 {
+	margin-top: 10px
+}
+
+.mt-20 {
+	margin-top: 20px
+}
+
+.mb-10 {
+	margin-bottom: 10px
+}
+
+.mb-20 {
+	margin-bottom: 20px
+}
+
+.d-flex {
+	display: flex
+}
+
+.gap-10 {
+	gap: 10px
+}
+
+.flex-end {
+	justify-content: flex-end
+}
+
+.align-center {
+	align-items: center
+}
+
+.justify-between {
+	justify-content: space-between
+}
+
+/* ================================================================
+   MODAL (usado em Mesas, Pedidos e Fila para pedir o "operador")
+   ================================================================ */
+.modal-overlay {
+	display: none;
+	position: fixed;
+	inset: 0;
+	background: rgba(0, 0, 0, .6);
+	z-index: 2000;
+	align-items: center;
+	justify-content: center
+}
+
+.modal-overlay.aberto {
+	display: flex
+}
+
+.modal {
+	background: var(--bg-card);
+	border: 1px solid var(--border-subtle-2);
+	border-radius: var(--radius);
+	padding: 28px;
+	width: 100%;
+	max-width: 380px;
+	box-shadow: var(--shadow-md)
+}
+
+.modal h3 {
+	font-size: 17px;
+	margin-bottom: 16px;
+	color: var(--text-primary)
+}
+
+.modal-acoes {
+	display: flex;
+	gap: 10px;
+	margin-top: 14px
+}
+
+.modal-acoes .btn {
+	flex: 1
+}
